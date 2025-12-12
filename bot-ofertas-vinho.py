@@ -1,6 +1,6 @@
 import time
 import requests
-import subprocess
+import pyperclip
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -48,24 +48,20 @@ def encurtar_link_tinyurl(long_url):
     try:
         resp = requests.get(f"http://tinyurl.com/api-create.php?url={long_url}")
         if resp.status_code == 200:
-            return resp.text
+            short = resp.text
+            # remover https:// para evitar preview
+            return short.replace("https://", "").replace("http://", "")
     except Exception as e:
         print(f"Erro ao encurtar link: {e}")
     return long_url
 
-
-# Helper: localizar caixa de mensagem do WhatsApp Web (várias variações de DOM)
+# Helper: localizar caixa de mensagem do WhatsApp Web
 def find_message_box(driver, timeout=10):
     xpaths = [
-        # WhatsApp Web: 'Digitar na conversa com ...'
         '//div[@contenteditable="true" and contains(@aria-label, "Digitar na conversa")]',
-        # 'Digitar no grupo' variante
         '//div[@contenteditable="true" and contains(@aria-label, "Digitar no grupo")]',
-        # placeholder-based
         '//div[@contenteditable="true" and contains(@aria-placeholder, "Digite uma mensagem")]',
-        # data-tab presence (some versions use data-tab numbers)
         '//div[@contenteditable="true" and @data-tab]',
-        # generic fallback
         '//div[@contenteditable="true"]',
     ]
     for xp in xpaths:
@@ -73,7 +69,6 @@ def find_message_box(driver, timeout=10):
             el = WebDriverWait(driver, timeout).until(
                 EC.presence_of_element_located((By.XPATH, xp))
             )
-            # ensure it's interactable
             try:
                 el.click()
             except Exception:
@@ -99,12 +94,12 @@ def enviar_whatsapp(ofertas, grupo_nome):
     time.sleep(3)
 
     # Construir uma única mensagem com todas as ofertas
-    lines = ["Ofertas de hoje:"]
+    lines = ["*Ofertas de hoje*"]
+    lines.append("")
     for oferta in ofertas[:5]:
         title = oferta.get('title')
         price = oferta.get('price')
         link = oferta.get('link')
-        # garantir que o link contenha a tag de associado
         try:
             if '?tag=' not in link:
                 sep = '&' if '?' in link else '?'
@@ -116,29 +111,24 @@ def enviar_whatsapp(ofertas, grupo_nome):
         lines.append(f"{title}")
         lines.append(f"Preço: {price}")
         lines.append(f"Link: {short_link}")
-        lines.append("")  # linha em branco entre ofertas
+        lines.append("")
 
     mensagem_unica = "\n".join(lines).strip()
 
     try:
         msg_box = find_message_box(driver)
         msg_box.click()
-        # usar clipboard para preservar quebras de linha, com fallback para send_keys
-        try:
-            p = subprocess.Popen(['xclip', '-selection', 'clipboard'], stdin=subprocess.PIPE)
-            p.communicate(mensagem_unica.encode('utf-8'))
-            msg_box.send_keys(Keys.CONTROL + 'v')
-            time.sleep(0.3)
-        except Exception:
-            msg_box.send_keys(mensagem_unica)
+
+        # copiar mensagem inteira para clipboard e colar
+        pyperclip.copy(mensagem_unica)
+        msg_box.send_keys(Keys.CONTROL, 'v')
+        time.sleep(0.5)
 
         msg_box.send_keys(Keys.ENTER)
-        time.sleep(1)
+        time.sleep(5)
         print(f"✓ Mensagem única enviada com {min(5, len(ofertas))} oferta(s)")
     except Exception as e:
         print(f"✗ Erro ao enviar mensagem única: {e}")
-
-    # mensagem enviada (ou erro já impresso acima)
 
     driver.quit()
 
